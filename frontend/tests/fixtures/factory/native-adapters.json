@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "p02_base": "423e9340da6cc93b00a3b8b576d597f70c5340fd",
+  "registry": {
+    "claude-code": {
+      "summary": {
+        "component": "DashboardPage",
+        "access": "write_capable",
+        "reads": [
+          "config",
+          "mcp",
+          "commands",
+          "agents",
+          "skills",
+          "hooks",
+          "plugins",
+          "permissions",
+          "output-styles",
+          "sessions",
+          "context",
+          "plans"
+        ],
+        "writes": [
+          "config",
+          "mcp",
+          "commands",
+          "agents",
+          "skills",
+          "hooks",
+          "plugins",
+          "permissions",
+          "output-styles",
+          "sessions",
+          "context",
+          "plans"
+        ]
+      },
+      "config": {
+        "component": "ConfigViewerPage",
+        "access": "write_capable",
+        "reads": [
+          "config",
+          "projects"
+        ],
+        "writes": [
+          "config",
+          "projects"
+        ]
+      },
+      "mcp": {
+        "component": "MCPServersPage",
+        "access": "write_capable",
+        "reads": [
+          "mcp"
+        ],
+        "writes": [
+          "mcp"
+        ]
+      },
+      "plugins": {
+        "component": "PluginsPage",
+        "access": "write_capable",
+        "reads": [
+          "plugins"
+        ],
+        "writes": [
+          "plugins"
+        ]
+      },
+      "commands": {
+        "component": "CommandsPage",
+        "access": "write_capable",
+        "reads": [
+          "commands"
+        ],
+        "writes": [
+          "commands"
+        ]
+      },
+      "hooks": {
+        "component": "HooksPage",
+        "access": "write_capable",
+        "reads": [
+          "hooks"
+        ],
+        "writes": [
+          "hooks"
+        ]
+      },
+      "permissions": {
+        "component": "PermissionsPage",
+        "access": "write_capable",
+        "reads": [
+          "permissions"
+        ],
+        "writes": [
+          "permissions"
+        ]
+      },
+      "agents": {
+        "component": "AgentsPage",
+        "access": "write_capable",
+        "reads": [
+          "agents"
+        ],
+        "writes": [
+          "agents"
+        ]
+      },
+      "skills": {
+        "component": "SkillsPage",
+        "access": "write_capable",
+        "reads": [
+          "agents/skills"
+        ],
+        "writes": [
+          "agents/skills"
+        ]
+      },
+      "memory": {
+        "component": "MemoryPage",
+        "access": "write_capable",
+        "reads": [
+          "memory"
+        ],
+        "writes": [
+          "memory"
+        ]
+      },
+      "backup": {
+        "component": "BackupPage",
+        "access": "write_capable",
+        "reads": [
+          "backup"
+        ],
+        "writes": [
+          "backup"
+        ]
+      },
+      "output-styles": {
+        "component": "OutputStylesPage",
+        "access": "write_capable",
+        "reads": [
+          "output-styles"
+        ],
+        "writes": [
+          "output-styles"
+        ]
+      },
+      "statusline": {
+        "component": "StatusLinePage",
+        "access": "write_capable",
+        "reads": [
+          "statusline"
+        ],
+        "writes": [
+          "statusline"
+        ]
+      },
+      "sessions": {
+        "component": "SessionsPage",
+        "access": "read_only",
+        "reads": [
+          "sessions"
+        ],
+        "writes": []
+      },
+      "plans": {
+        "component": "PlansPage",
+        "access": "read_only",
+        "reads": [
+          "plans"
+        ],
+        "writes": []
+      },
+      "context": {
+        "component": "ContextPage",
+        "access": "read_only",
+        "reads": [
+          "context"
+        ],
+        "writes": []
+      },
+      "usage": {
+        "component": "UsagePage",
+        "access": "read_only",
+        "reads": [
+          "usage"
+        ],
+        "writes": []
+      }
+    },
+    "codex-cli": {
+      "summary": {
+        "component": "DashboardPage",
+        "access": "write_capable",
+        "reads": [
+          "codex-config",
+          "providers/codex-cli",
+          "agent-bridge/sessions",
+          "plans"
+        ],
+        "writes": [
+          "codex-config",
+          "providers/codex-cli",
+          "agent-bridge/sessions",
+          "plans"
+        ]
+      },
+      "config": {
+        "component": "ConfigViewerPage",
+        "access": "write_capable",
+        "reads": [
+          "codex-config"
+        ],
+        "writes": [
+          "codex-config"
+        ]
+      },
+      "mcp": {
+        "component": "MCPServersPage",
+        "access": "write_capable",
+        "reads": [
+          "providers/codex-cli/mcp"
+        ],
+        "writes": [
+          "providers/codex-cli/mcp"
+        ]
+      },
+      "plugins": {
+        "component": "PluginsPage",
+        "access": "write_capable",
+        "reads": [
+          "providers/codex-cli/plugins"
+        ],
+        "writes": [
+          "providers/codex-cli/plugins"
+        ]
+      },
+      "plans": {
+        "component": "PlansPage",
+        "access": "read_only",
+        "reads": [
+          "plans"
+        ],
+        "writes": []
+      }
+    },
+    "copilot-cli": {},
+    "opencode-cli": {},
+    "pi-cli": {}
+  }
+}

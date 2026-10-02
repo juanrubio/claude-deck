@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -12,6 +13,7 @@ vi.mock('../src/features/agent-teams/api', async (importOriginal) => {
   return {
     ...actual,
     fetchAgentTeamPresets: vi.fn(),
+    fetchTeamGithubScopes: vi.fn().mockResolvedValue({ scopes: [] }),
     planAgentTeamLaunch: vi.fn(),
     launchAgentTeam: vi.fn(),
   }
@@ -99,7 +101,7 @@ beforeEach(() => {
 describe('AgentTeamsPage launch authorization', () => {
   it('shows only the token dialog before the first plan request', async () => {
     const user = userEvent.setup()
-    render(<AgentTeamsPage />)
+    render(<MemoryRouter><AgentTeamsPage /></MemoryRouter>)
 
     await user.click(await screen.findByRole('button', { name: 'Plan launch' }))
     const tokenDialog = await screen.findByRole('dialog', { name: 'Operator token' })
@@ -124,7 +126,7 @@ describe('AgentTeamsPage launch authorization', () => {
       .mockRejectedValueOnce(new ApiHttpError('The operator token was rejected.', 401))
       .mockResolvedValueOnce(result)
     const user = userEvent.setup()
-    render(<AgentTeamsPage />)
+    render(<MemoryRouter><AgentTeamsPage /></MemoryRouter>)
 
     await user.click(await screen.findByRole('button', { name: 'Plan launch' }))
     expect(await screen.findByRole('dialog', { name: 'Launch Plan' })).toBeInTheDocument()

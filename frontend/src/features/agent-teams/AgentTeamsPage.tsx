@@ -1,3 +1,4 @@
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown,
@@ -749,8 +750,15 @@ function LaunchPlanDialog({
 }
 
 export function AgentTeamsPage() {
+  const { teamId } = useParams()
+  const [contextParams] = useSearchParams()
+  const navigate = useNavigate()
+  const requestedTeamId = teamId && /^\d+$/.test(teamId) ? Number(teamId) : null
+  const requestedSlotId = Number(contextParams.get('slot_id')) || null
+  const requestedTab = contextParams.get('tab')
+
   const [presets, setPresets] = useState<AgentTeamPreset[]>([])
-  const [selectedPresetId, setSelectedPresetId] = useState<number | null>(null)
+  const [selectedPresetId, setSelectedPresetId] = useState<number | null>(requestedTeamId)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [presetDialog, setPresetDialog] = useState<PresetDialogState>(null)
@@ -768,7 +776,7 @@ export function AgentTeamsPage() {
   const [githubWorkItems, setGithubWorkItems] = useState<GithubWorkItem[]>([])
   const [autonomyLoading, setAutonomyLoading] = useState(false)
   const [autonomyRefreshing, setAutonomyRefreshing] = useState(false)
-  const [autonomyTab, setAutonomyTab] = useState<'roster' | 'autonomy'>('roster')
+  const [autonomyTab, setAutonomyTab] = useState<'roster' | 'autonomy'>(requestedTab === 'autonomy' ? 'autonomy' : 'roster')
   const [autonomyLastRefreshedAt, setAutonomyLastRefreshedAt] = useState<Date | null>(null)
   const [autonomyLoadError, setAutonomyLoadError] = useState<string | null>(null)
   const [autonomyDataPresetId, setAutonomyDataPresetId] = useState<number | null>(null)
@@ -833,15 +841,26 @@ export function AgentTeamsPage() {
       const response = await fetchAgentTeamPresets()
       setPresets(response.presets)
       setSelectedPresetId((current) => {
+        if (requestedTeamId) return requestedTeamId
         if (current && response.presets.some((preset) => preset.id === current)) return current
-        return response.presets[0]?.id ?? null
+        return requestedTeamId ?? response.presets[0]?.id ?? null
       })
+      if (!requestedTab && !contextParams.has('review_launch')) {
+        const initial = requestedTeamId ?? response.presets[0]?.id
+        if (initial) {
+          try {
+            const scopes = await fetchTeamGithubScopes(initial)
+            setAutonomyTab(scopes.scopes.length ? 'autonomy' : 'roster')
+          } catch { /* Keep roster usable when the scope read is unavailable. */ }
+        }
+      }
+
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load Agent Teams')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [requestedTeamId, requestedTab, contextParams])
 
   const loadProviderLaunchOptions = useCallback(async () => {
     try {
@@ -1294,7 +1313,7 @@ export function AgentTeamsPage() {
               <button
                 key={preset.id}
                 type="button"
-                onClick={() => setSelectedPresetId(preset.id)}
+                onClick={() => { setSelectedPresetId(preset.id); navigate(`/teams/${preset.id}`) }}
                 className={cn(
                   'mb-2 w-full rounded-md border p-3 text-left transition-colors hover:bg-accent',
                   selectedPresetId === preset.id && 'border-primary bg-accent'
@@ -1320,10 +1339,12 @@ export function AgentTeamsPage() {
         <div className="min-w-0 rounded-lg border">
           {!selectedPreset ? (
             <div className="p-8 text-sm text-muted-foreground">
-              Select or create a team.
+              {teamId ? `Team ${teamId} not found. Select an available team.` : 'Select or create a team.'}
             </div>
           ) : (
             <div className="space-y-6 p-5">
+              {contextParams.get('review_launch') === '1' && <section className="space-y-2 rounded border p-3"><h3 className="font-semibold">Review selected slot launch</h3><p>{selectedPreset.slots.find(slot => slot.id === requestedSlotId)?.display_name ?? 'Selected slot not found'} · slot {requestedSlotId ?? 'unknown'}. Opening this page does not launch or approve work.</p><Button variant="outline" disabled={!selectedPreset.slots.some(slot => slot.id === requestedSlotId)} onClick={() => void openPlan(requestedSlotId ? [requestedSlotId] : null)}>Review current authenticated launch plan</Button></section>}
+
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="grid flex-1 gap-3">
                   <div className="grid gap-2">

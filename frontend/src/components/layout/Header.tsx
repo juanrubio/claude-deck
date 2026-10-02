@@ -33,7 +33,7 @@ export function Header() {
 
   return (
     <header className={cn("border-b bg-background", instance && "border-t-4", instance && accentClasses.headerBorder)}>
-      <div className="flex h-16 items-center justify-between px-6">
+      <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 px-3 py-2 md:px-6">
         <div className="flex items-center gap-3">
           <img
             src={theme === "light" ? "/logo-light.png" : "/logo-dark.png"}
@@ -41,11 +41,11 @@ export function Header() {
             className="h-10 w-10"
           />
           <div>
-            <h1 className="text-2xl font-bold text-primary leading-tight">Claude Deck</h1>
+            <h1 className="text-xl md:text-2xl font-bold text-primary leading-tight">Claude Deck</h1>
             <p className="text-xs text-muted-foreground">Your local agent command centre</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {status && (
             <>
               {instance && (
