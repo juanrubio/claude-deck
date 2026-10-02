@@ -758,7 +758,9 @@ export function AgentTeamsPage() {
   const requestedTab = contextParams.get('tab')
 
   const [presets, setPresets] = useState<AgentTeamPreset[]>([])
-  const [selectedPresetId, setSelectedPresetId] = useState<number | null>(requestedTeamId)
+  const [selectedPresetIdState, setSelectedPresetId] = useState<number | null>(requestedTeamId)
+  const selectedPresetId = requestedTeamId ?? selectedPresetIdState
+  const presetRequestIdRef = useRef(0)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [presetDialog, setPresetDialog] = useState<PresetDialogState>(null)
@@ -836,9 +838,11 @@ export function AgentTeamsPage() {
   const { name, setName, description, setDescription } = usePresetForm(selectedPreset)
 
   const loadPresets = useCallback(async () => {
+    const requestId = ++presetRequestIdRef.current
     setLoading(true)
     try {
       const response = await fetchAgentTeamPresets()
+      if (requestId !== presetRequestIdRef.current) return
       setPresets(response.presets)
       setSelectedPresetId((current) => {
         if (requestedTeamId) return requestedTeamId
@@ -850,15 +854,15 @@ export function AgentTeamsPage() {
         if (initial) {
           try {
             const scopes = await fetchTeamGithubScopes(initial)
-            setAutonomyTab(scopes.scopes.length ? 'autonomy' : 'roster')
+            if (requestId === presetRequestIdRef.current) setAutonomyTab(scopes.scopes.length ? 'autonomy' : 'roster')
           } catch { /* Keep roster usable when the scope read is unavailable. */ }
         }
       }
 
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to load Agent Teams')
+      if (requestId === presetRequestIdRef.current) toast.error(error instanceof Error ? error.message : 'Failed to load Agent Teams')
     } finally {
-      setLoading(false)
+      if (requestId === presetRequestIdRef.current) setLoading(false)
     }
   }, [requestedTeamId, requestedTab, contextParams])
 
@@ -920,12 +924,17 @@ export function AgentTeamsPage() {
     let cancelled = false
     queueMicrotask(() => {
       if (!cancelled) {
+        setPlan(null)
+        setLaunchResult(null)
+        setPlanLoading(false)
         void loadPresets()
         void loadProviderLaunchOptions()
       }
     })
     return () => {
       cancelled = true
+      presetRequestIdRef.current += 1
+      autonomyRequestIdRef.current += 1
     }
   }, [loadPresets, loadProviderLaunchOptions])
 
@@ -945,11 +954,16 @@ export function AgentTeamsPage() {
       return
     }
     if (autonomyTab !== 'autonomy') return
-    queueMicrotask(() => { void loadAutonomy(selectedPresetId, true) })
+    let cancelled = false
+    queueMicrotask(() => { if (!cancelled) void loadAutonomy(selectedPresetId, true) })
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') void loadAutonomy(selectedPresetId)
     }, 5000)
-    return () => window.clearInterval(interval)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+      autonomyRequestIdRef.current += 1
+    }
   }, [autonomyTab, loadAutonomy, selectedPresetId])
 
   const stats = useMemo(() => {
@@ -1197,6 +1211,7 @@ export function AgentTeamsPage() {
     reuseExisting: boolean = true
   ) => {
     if (!selectedPreset) return
+    const requestId = presetRequestIdRef.current
     setPlanLoading(true)
     setPlan(null)
     setLaunchResult(null)
@@ -1209,16 +1224,20 @@ export function AgentTeamsPage() {
         adopt_unbound_sessions: adoptUnbound,
         reuse_existing: reuseExisting,
       }
-      setPlan(await withOperatorToken((token) => planAgentTeamLaunch(selectedPreset.id, request, token)))
+      const nextPlan = await withOperatorToken((token) => {
+        if (requestId !== presetRequestIdRef.current) throw new Error('Team context changed. Review the current team again.')
+        return planAgentTeamLaunch(selectedPreset.id, request, token)
+      })
+      if (requestId === presetRequestIdRef.current) setPlan(nextPlan)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to plan launch')
+      if (requestId === presetRequestIdRef.current) toast.error(error instanceof Error ? error.message : 'Failed to plan launch')
     } finally {
-      setPlanLoading(false)
+      if (requestId === presetRequestIdRef.current) setPlanLoading(false)
     }
   }
 
   const runLaunch = async () => {
-    if (!selectedPreset || !plan) return
+    if (!selectedPreset || !plan || plan.preset_id !== selectedPreset.id) return
     setLaunching(true)
     try {
       const request: AgentTeamLaunchRequest = {
@@ -1560,8 +1579,8 @@ export function AgentTeamsPage() {
       />
       {!tokenDialogOpen && (
         <LaunchPlanDialog
-          plan={plan}
-          result={launchResult}
+          plan={plan?.preset_id === selectedPreset?.id ? plan : null}
+          result={launchResult?.preset_id === selectedPreset?.id ? launchResult : null}
           loading={planLoading}
           launching={launching}
           onOpenChange={(open) => {

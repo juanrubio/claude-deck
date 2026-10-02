@@ -57,7 +57,8 @@ class Observation<T> {
         queueMicrotask(() => {
           if (!this.listeners.size) {
             this.generation++;
-            if (observations.get(this.endpoint) === this) observations.delete(this.endpoint);
+            if (observations.get(this.endpoint) === this)
+              observations.delete(this.endpoint);
           }
         });
       }
@@ -85,7 +86,18 @@ export interface ListState<T> extends ReadState<Page<T>> {
   paused: boolean;
   needsRefresh: boolean;
 }
+export interface ListPosition {
+  top: number;
+  left: number;
+  focusHref: string | null;
+  focusText: string | null;
+}
 class CursorList<T> {
+  position: ListPosition | null = null;
+  getPosition = () => this.position;
+  rememberPosition = (position: ListPosition) => {
+    if (this.state.paused) this.position = position;
+  };
   state: ListState<T> = {
     data: null,
     error: null,
@@ -172,6 +184,7 @@ class CursorList<T> {
     void this.fetchPage(cursor, this.generation, this.firstRequest);
   };
   restart = () => {
+    this.position = null;
     this.generation++;
     this.publish({
       data: null,
@@ -186,6 +199,19 @@ class CursorList<T> {
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
     if (this.listeners.size === 1) {
+      // A different URL in this list family is an explicit filter change.
+      // Detail navigation leaves the current paused URL cached without polling.
+      const family = this.endpoint.split("?")[0];
+      lists.forEach((list, endpoint) => {
+        if (
+          endpoint !== this.endpoint &&
+          endpoint.split("?")[0] === family &&
+          !list.listeners.size
+        ) {
+          list.generation++;
+          lists.delete(endpoint);
+        }
+      });
       this.poll();
       this.timer = setInterval(this.poll, 5000);
       document.addEventListener("visibilitychange", this.poll);
@@ -197,8 +223,13 @@ class CursorList<T> {
         document.removeEventListener("visibilitychange", this.poll);
         queueMicrotask(() => {
           if (!this.listeners.size) {
-            this.generation++;
-            if (lists.get(this.endpoint) === this) lists.delete(this.endpoint);
+            if (!this.state.paused) {
+              this.generation++;
+              if (lists.get(this.endpoint) === this)
+                lists.delete(this.endpoint);
+            }
+            // A paused page may still be fetching its next cursor. Let it finish
+            // while detached; no timers remain and detail actions can mark it dirty.
           }
         });
       }
@@ -222,6 +253,8 @@ export function useCursorList<T>(
     ...useSyncExternalStore(list.subscribe, list.snapshot),
     more: list.more,
     restart: list.restart,
+    getPosition: list.getPosition,
+    rememberPosition: list.rememberPosition,
   };
 }
 export function markWorkListsDirty() {

@@ -1,6 +1,8 @@
-import { StrictMode } from 'react'
+import { StrictMode } from "react";
+import { MemoryRouter, Routes, Route, useNavigate } from "react-router-dom";
 import {
   act,
+  render,
   cleanup,
   fireEvent,
   screen,
@@ -17,7 +19,10 @@ import {
   useObservation,
   markWorkListsDirty,
 } from "../src/features/factory/reads";
-import { clearOperatorToken, setOperatorToken } from "../src/features/agent-teams/operatorAuth";
+import {
+  clearOperatorToken,
+  setOperatorToken,
+} from "../src/features/agent-teams/operatorAuth";
 import {
   fixtureFetch,
   jsonResponse,
@@ -54,15 +59,31 @@ function standard(path: string) {
 }
 
 describe("delivery read authority and filters", () => {
- it('shares observations under StrictMode and pauses hidden polling', async () => {
-  vi.useFakeTimers()
-  function Observer() { const state=useObservation<{generated_at:string}>('factory/overview'); return <span>{state.data?.generated_at}</span> }
-  const {requests}=fixtureFetch(()=>jsonResponse(overview.normal.response))
-  renderRoute(<StrictMode><Observer/><Observer/></StrictMode>); await settle()
-  expect(requests).toHaveLength(1)
-  await act(async()=>vi.advanceTimersByTimeAsync(5000));expect(requests).toHaveLength(2)
-  await visibility('hidden');await act(async()=>vi.advanceTimersByTimeAsync(10000));expect(requests).toHaveLength(2)
- })
+  it("shares observations under StrictMode and pauses hidden polling", async () => {
+    vi.useFakeTimers();
+    function Observer() {
+      const state = useObservation<{ generated_at: string }>(
+        "factory/overview",
+      );
+      return <span>{state.data?.generated_at}</span>;
+    }
+    const { requests } = fixtureFetch(() =>
+      jsonResponse(overview.normal.response),
+    );
+    renderRoute(
+      <StrictMode>
+        <Observer />
+        <Observer />
+      </StrictMode>,
+    );
+    await settle();
+    expect(requests).toHaveLength(1);
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(requests).toHaveLength(2);
+    await visibility("hidden");
+    await act(async () => vi.advanceTimersByTimeAsync(10000));
+    expect(requests).toHaveLength(2);
+  });
 
   it("does not inherit native preferences and links complete-set counts with URL filters", async () => {
     localStorage.setItem("claude-deck:selected-provider", "pi-cli");
@@ -211,28 +232,122 @@ describe("delivery read authority and filters", () => {
 });
 
 describe("cursor browsing V26/V27", () => {
-  it('clears older-page browsing on a filter change, including return to a previous URL', async () => {
-    fixtureFetch((_path, query) => jsonResponse(query.has('cursor') ? work.next_page.response : first))
-    renderRoute(<WorkPage />, '/work?team_id=1'); await settle()
-    fireEvent.click(screen.getByRole('button', {name:'Load more'})); await settle()
-    expect(screen.getByText(/Live updates paused/)).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Team ID'), {target:{value:'2'}}); await settle()
-    fireEvent.change(screen.getByLabelText('Team ID'), {target:{value:'1'}}); await settle()
-    expect(screen.queryByText(/Live updates paused/)).not.toBeInTheDocument()
-    expect(screen.getAllByText(/Fixture issue/)).toHaveLength(2)
-  })
-  it('refreshes a real protected-action detail without restarting its paused list', async () => {
-    const eligible=detail.operator_stop_retry_eligible.response
-    const {requests}=fixtureFetch((path, query) => path.endsWith('/retry') ? jsonResponse(eligible.work_item.item) : path.startsWith('factory/work-items/') ? jsonResponse(eligible) : jsonResponse(query.has('cursor') ? work.next_page.response : first))
-    setOperatorToken('synthetic-test-operator')
-    renderRoute(<><WorkPage /><WorkDetailPage /></>, `/work/${eligible.work_item.item.id}`, '/work/:workItemId'); await settle()
-    fireEvent.click(screen.getByRole('button',{name:'Load more'})); await settle()
-    const listReads=requests.filter(r=>r.path==='factory/work-items').length
-    fireEvent.click(screen.getByRole('button',{name:'Retry issue'})); await settle()
-    expect(requests.filter(r=>r.path==='factory/work-items')).toHaveLength(listReads)
-    expect(requests.some(r=>r.path.endsWith('/retry')&&r.method==='POST')).toBe(true)
-    expect(screen.getByText(/detail changed; refresh needed/)).toBeInTheDocument()
-  })
+  it("clears older-page browsing on a filter change, including return to a previous URL", async () => {
+    fixtureFetch((_path, query) =>
+      jsonResponse(query.has("cursor") ? work.next_page.response : first),
+    );
+    renderRoute(<WorkPage />, "/work?team_id=1");
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await settle();
+    expect(screen.getByText(/Live updates paused/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Team ID"), {
+      target: { value: "2" },
+    });
+    await settle();
+    fireEvent.change(screen.getByLabelText("Team ID"), {
+      target: { value: "1" },
+    });
+    await settle();
+    expect(screen.queryByText(/Live updates paused/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Fixture issue/)).toHaveLength(2);
+  });
+  it("retains >100 paused rows, dirty state, return focus/scroll through real list/detail/action/Back routes", async () => {
+    vi.useFakeTimers();
+    const eligible = detail.operator_stop_retry_eligible.response;
+    const rows = Array.from({ length: 132 }, (_, i) => ({
+      ...structuredClone(first.items[i % first.items.length]),
+      item: {
+        ...first.items[0].item,
+        id: 1000 + i,
+        issue_title: `Navigation issue ${i}`,
+      },
+    }));
+    rows[131].item.id = eligible.work_item.item.id;
+    const { requests } = fixtureFetch((path, query) => {
+      if (path.endsWith("/retry")) return jsonResponse(eligible.work_item.item);
+      if (path.startsWith("factory/work-items/")) return jsonResponse(eligible);
+      const cursor = query.get("cursor"),
+        start = cursor === "second" ? 50 : cursor === "third" ? 100 : 0;
+      return jsonResponse({
+        ...first,
+        items: rows.slice(start, start + 50),
+        has_more: start !== 100,
+        next_cursor: start === 0 ? "second" : start === 50 ? "third" : null,
+      });
+    });
+    function Back() {
+      const navigate = useNavigate();
+      return <button onClick={() => navigate(-1)}>Browser Back</button>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/work?team_id=1"]}>
+        <Back />
+        <main>
+          <Routes>
+            <Route path="/work" element={<WorkPage />} />
+            <Route path="/work/:workItemId" element={<WorkDetailPage />} />
+          </Routes>
+        </main>
+      </MemoryRouter>,
+    );
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await settle();
+    expect(screen.getAllByText(/Navigation issue/)).toHaveLength(132);
+    const main = document.querySelector("main")!,
+      table = main.querySelector<HTMLElement>("[data-work-table]")!;
+    main.scrollTop = 730;
+    table.scrollLeft = 210;
+    const link = screen.getByRole("link", { name: /Navigation issue 131/ });
+    link.focus();
+    fireEvent.click(link);
+    await settle();
+    expect(
+      screen.queryByRole("button", { name: "No more results" }),
+    ).not.toBeInTheDocument();
+    main.scrollTop = 0;
+    const listReads = requests.filter(
+      (r) => r.path === "factory/work-items",
+    ).length;
+    setOperatorToken("synthetic-test-operator");
+    fireEvent.click(screen.getByRole("button", { name: "Retry issue" }));
+    await settle();
+    await act(async () => vi.advanceTimersByTimeAsync(15000));
+    await visibility("hidden");
+    await visibility("visible");
+    fireEvent.click(screen.getByRole("button", { name: "Browser Back" }));
+    await settle();
+    expect(screen.getAllByText(/Navigation issue/)).toHaveLength(132);
+    expect(
+      screen.getByText(/detail changed; refresh needed/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "No more results" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(main.scrollTop).toBe(730);
+    expect(
+      main.querySelector<HTMLElement>("[data-work-table]")!.scrollLeft,
+    ).toBe(210);
+    expect(
+      screen.getByRole("link", { name: /Navigation issue 131/ }),
+    ).toHaveFocus();
+    await act(async () => vi.advanceTimersByTimeAsync(15000));
+    expect(
+      requests.filter((r) => r.path === "factory/work-items"),
+    ).toHaveLength(listReads);
+    expect(requests.filter((r) => r.method === "POST")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh from start" }));
+    await settle();
+    expect(screen.getAllByText(/Navigation issue/)).toHaveLength(50);
+    expect(screen.queryByText(/Live updates paused/)).not.toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(
+      requests.filter((r) => r.path === "factory/work-items").length,
+    ).toBeGreaterThan(listReads);
+  });
 
   it("preserves >100 derived rows, focus and scroll after old responses, polling, final page, visibility and detail actions", async () => {
     vi.useFakeTimers();

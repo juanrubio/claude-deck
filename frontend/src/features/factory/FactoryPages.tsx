@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -159,7 +159,7 @@ function GithubLink({
 }
 function WorkTable({ rows }: { rows: WorkProjection[] }) {
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div data-work-table className="overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[720px] text-left text-sm">
         <caption className="sr-only">
           Delivery work across selected teams and watched scopes
@@ -248,8 +248,46 @@ function WorkResults({ query = "" }: { query?: string }) {
     "items",
     (row) => row.item.id,
   );
+  const root = useRef<HTMLDivElement>(null);
+  const { getPosition, rememberPosition } = state;
+  useLayoutEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    const main = element.closest("main") ?? document.documentElement;
+    const table = element.querySelector<HTMLElement>("[data-work-table]");
+    const position = getPosition();
+    if (position) {
+      const link = [
+        ...element.querySelectorAll<HTMLAnchorElement>("a[href]"),
+      ].find(
+        (candidate) =>
+          candidate.getAttribute("href") === position.focusHref &&
+          candidate.textContent === position.focusText,
+      );
+      link?.focus({ preventScroll: true });
+      main.scrollTop = position.top;
+      if (table) table.scrollLeft = position.left;
+    }
+    return () => {
+      const active = document.activeElement;
+      rememberPosition({
+        top: main.scrollTop,
+        left:
+          element.querySelector<HTMLElement>("[data-work-table]")?.scrollLeft ??
+          0,
+        focusHref:
+          active instanceof HTMLAnchorElement && element.contains(active)
+            ? active.getAttribute("href")
+            : null,
+        focusText:
+          active instanceof HTMLAnchorElement && element.contains(active)
+            ? active.textContent
+            : null,
+      });
+    };
+  }, [getPosition, rememberPosition]);
   return (
-    <div className="space-y-4">
+    <div ref={root} className="space-y-4">
       <ReadStatus state={state} />
       {state.data && (
         <>

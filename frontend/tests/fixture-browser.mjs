@@ -285,7 +285,8 @@ try {
   await send("Page.enable");
   await send("Runtime.enable");
   const observations = [],
-    keyboard = [];
+    keyboard = [],
+    navigation = [];
   for (const width of [360, 768, 1280]) {
     await send("Emulation.setDeviceMetricsOverride", {
       width,
@@ -344,6 +345,73 @@ try {
         Buffer.from(shot.data, "base64"),
       );
       observations.push({ name, route, ...layout });
+      if (name === "work") {
+        await evaluate(
+          '[...document.querySelectorAll("button")].find(b=>b.textContent==="Load more").click()',
+        );
+        for (let i = 0; i < 100; i++) {
+          if (
+            await evaluate('document.querySelectorAll("tbody tr").length===4')
+          )
+            break;
+          await sleep(50);
+        }
+        const before = await evaluate(`(() => {
+          const main=document.querySelector("main"),table=document.querySelector("[data-work-table]");
+          const link=[...document.querySelectorAll("a")].filter(a=>a.textContent==="Open details").at(-1);
+          link.focus({preventScroll:true});main.scrollTop=200;table.scrollLeft=180;
+          return {top:main.scrollTop,left:table.scrollLeft,href:link.getAttribute("href"),rows:document.querySelectorAll("tbody tr").length};
+        })()`);
+        const reads = requests.filter(
+          (r) => r.path === "factory/work-items",
+        ).length;
+        await evaluate(
+          '[...document.querySelectorAll("a")].filter(a=>a.textContent==="Open details").at(-1).click()',
+        );
+        for (let i = 0; i < 100; i++) {
+          if (
+            await evaluate(
+              'document.body.innerText.includes("delivery and human review are unconfirmed")',
+            )
+          )
+            break;
+          await sleep(50);
+        }
+        await evaluate(
+          'document.querySelector("main").scrollTop=0;history.back()',
+        );
+        for (let i = 0; i < 100; i++) {
+          if (
+            await evaluate(
+              'document.body.innerText.includes("Live updates paused")',
+            )
+          )
+            break;
+          await sleep(50);
+        }
+        const after = await evaluate(
+          '({top:document.querySelector("main").scrollTop,left:document.querySelector("[data-work-table]")?.scrollLeft,href:document.activeElement?.getAttribute("href"),rows:document.querySelectorAll("tbody tr").length,paused:document.body.innerText.includes("Live updates paused")})',
+        );
+        assert.equal(after.rows, before.rows);
+        assert.equal(after.rows, 4);
+        assert.equal(after.paused, true);
+        assert.equal(after.top, before.top);
+        assert.equal(after.left, before.left);
+        assert.equal(after.href, before.href);
+        assert.equal(
+          requests.filter((r) => r.path === "factory/work-items").length,
+          reads,
+        );
+        navigation.push({ width, before, after, extra_first_page_reads: 0 });
+        const returned = await send("Page.captureScreenshot", {
+          format: "png",
+          captureBeyondViewport: false,
+        });
+        await fs.writeFile(
+          path.join(evidence, `work-return-${width}.png`),
+          Buffer.from(returned.data, "base64"),
+        );
+      }
       if (name === "launch") {
         assert(
           !(await evaluate(
@@ -368,12 +436,22 @@ try {
           code: "Enter",
           windowsVirtualKeyCode: 13,
         });
-        for (let i=0; i<20; i++) {
-          if (await evaluate('Boolean(document.querySelector("input[type=password]"))')) break;
+        for (let i = 0; i < 20; i++) {
+          if (
+            await evaluate(
+              'Boolean(document.querySelector("input[type=password]"))',
+            )
+          )
+            break;
           await sleep(50);
         }
-        const prompt = await evaluate('({prompt:Boolean(document.querySelector("input[type=password]")),active:document.activeElement?.textContent,dialogs:[...document.querySelectorAll("[role=dialog]")].map(d=>d.textContent)})');
-        assert(prompt.prompt, `Keyboard launch review did not request operator authorization: ${JSON.stringify(prompt)}`);
+        const prompt = await evaluate(
+          '({prompt:Boolean(document.querySelector("input[type=password]")),active:document.activeElement?.textContent,dialogs:[...document.querySelectorAll("[role=dialog]")].map(d=>d.textContent)})',
+        );
+        assert(
+          prompt.prompt,
+          `Keyboard launch review did not request operator authorization: ${JSON.stringify(prompt)}`,
+        );
         keyboard.push({
           width,
           case: "offline launch review via Enter",
@@ -413,6 +491,7 @@ try {
           "b17dea10bb7c2f9ac2047c35f5921b9adb0dacc85b71fdc700849913471d9706",
         observations,
         keyboard,
+        navigation,
         requests,
         unknown,
         errors,
@@ -424,15 +503,28 @@ try {
   console.log(
     JSON.stringify({
       head,
-      screenshots: observations.length,
+      screenshots: observations.length + navigation.length,
+      routeReturns: navigation.length,
       unknown,
       errors: errors.length,
     }),
   );
 } finally {
   ws?.close();
-  chrome.kill();
-  await new Promise((resolve) => chrome.once("exit", resolve));
-  server.close();
-  await fs.rm(profile, { recursive: true, force: true });
+  // Register before signalling; an already-exited process must not hang cleanup.
+  if (chrome.exitCode === null && chrome.signalCode === null) {
+    const exited = new Promise((resolve) => chrome.once("exit", resolve));
+    chrome.kill();
+    await exited;
+  }
+  await new Promise((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+  // Chrome helpers can briefly finish writes after the parent exits.
+  await fs.rm(profile, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 100,
+  });
 }
