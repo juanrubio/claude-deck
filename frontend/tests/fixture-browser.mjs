@@ -329,7 +329,7 @@ try {
       );
       await sleep(100);
       const layout = await evaluate(
-        '({width:innerWidth,bodyWidth:document.documentElement.scrollWidth,mainWidth:document.querySelector("main").clientWidth,heading:document.querySelector("main h2")?.textContent})',
+        '({width:innerWidth,bodyWidth:document.documentElement.scrollWidth,mainWidth:document.querySelector("main").clientWidth,mainScrollWidth:document.querySelector("main").scrollWidth,heading:document.querySelector("main h2")?.textContent})',
       );
       assert(
         layout.bodyWidth <= width,
@@ -356,6 +356,8 @@ try {
         );
         await send("Input.dispatchKeyEvent", {
           type: "keyDown",
+          text: "\r",
+          unmodifiedText: "\r",
           key: "Enter",
           code: "Enter",
           windowsVirtualKeyCode: 13,
@@ -366,13 +368,12 @@ try {
           code: "Enter",
           windowsVirtualKeyCode: 13,
         });
-        await sleep(100);
-        assert(
-          await evaluate(
-            'Boolean(document.querySelector("input[type=password]"))',
-          ),
-          "Keyboard launch review did not request operator authorization",
-        );
+        for (let i=0; i<20; i++) {
+          if (await evaluate('Boolean(document.querySelector("input[type=password]"))')) break;
+          await sleep(50);
+        }
+        const prompt = await evaluate('({prompt:Boolean(document.querySelector("input[type=password]")),active:document.activeElement?.textContent,dialogs:[...document.querySelectorAll("[role=dialog]")].map(d=>d.textContent)})');
+        assert(prompt.prompt, `Keyboard launch review did not request operator authorization: ${JSON.stringify(prompt)}`);
         keyboard.push({
           width,
           case: "offline launch review via Enter",
