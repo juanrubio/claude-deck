@@ -321,6 +321,101 @@ describe("Teams current route and stale reads", () => {
     ).not.toBeInTheDocument();
     expect(launchAgentTeam).not.toHaveBeenCalled();
   });
+  it("cancels a rejected launch token re-prompt on navigation and never retries the prior team", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchAgentTeamPresets).mockResolvedValue(teams);
+    vi.mocked(planAgentTeamLaunch).mockImplementation(async (id) => ({
+      ...plan,
+      preset_id: id,
+      preset_name: id === 1 ? "Team1" : "Team2",
+    }));
+    vi.mocked(launchAgentTeam).mockRejectedValueOnce(
+      new ApiHttpError("Rejected operator token", 401),
+    );
+    setOperatorToken("synthetic-rejected-token");
+    renderTeams();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Review current authenticated launch plan",
+      }),
+    );
+    const launch = await screen.findByRole("dialog", { name: "Launch Plan" });
+    await user.click(within(launch).getByRole("button", { name: "Launch" }));
+    await screen.findByRole("dialog", { name: "Operator token" });
+    expect(launchAgentTeam).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Team2 context", hidden: true }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Name")).toHaveValue("Team2"),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Operator token" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "Launch Plan" }),
+    ).not.toBeInTheDocument();
+    // A replacement credential belongs to a NEW explicit Team2 plan request.
+    await user.click(
+      screen.getByRole("button", {
+        name: "Review current authenticated launch plan",
+      }),
+    );
+    const current = await screen.findByRole("dialog", {
+      name: "Operator token",
+    });
+    await user.type(
+      within(current).getByLabelText(/Operator token/),
+      "synthetic-current-token{Enter}",
+    );
+    await waitFor(() =>
+      expect(
+        vi.mocked(planAgentTeamLaunch).mock.calls.map((call) => call[0]),
+      ).toEqual([1, 2]),
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "Launch Plan" }),
+    ).toBeInTheDocument();
+    expect(
+      vi.mocked(launchAgentTeam).mock.calls.map((call) => call[0]),
+    ).toEqual([1]);
+    expect(vi.mocked(launchAgentTeam).mock.calls[0][2]).toBe(
+      "synthetic-rejected-token",
+    );
+  });
+  it("ignores an old launch result without refreshing presets after navigation", async () => {
+    let release!: (value: AgentTeamLaunchResult) => void;
+    vi.mocked(fetchAgentTeamPresets).mockResolvedValue(teams);
+    vi.mocked(launchAgentTeam).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    setOperatorToken("synthetic-current-token");
+    renderTeams();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Review current authenticated launch plan",
+      }),
+    );
+    const launch = await screen.findByRole("dialog", { name: "Launch Plan" });
+    fireEvent.click(within(launch).getByRole("button", { name: "Launch" }));
+    await waitFor(() => expect(launchAgentTeam).toHaveBeenCalledTimes(1));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Team2 context", hidden: true }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Name")).toHaveValue("Team2"),
+    );
+    const reads = vi.mocked(fetchAgentTeamPresets).mock.calls.length;
+    await act(async () => release(result));
+    expect(fetchAgentTeamPresets).toHaveBeenCalledTimes(reads);
+    expect(
+      screen.queryByRole("dialog", { name: "Launch Plan" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("Team2");
+  });
   it("retires an old initial scope response before it can switch the current roster tab", async () => {
     let release!: (
       value: Awaited<ReturnType<typeof fetchTeamGithubScopes>>,

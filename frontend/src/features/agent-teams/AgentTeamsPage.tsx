@@ -1,5 +1,5 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown,
   ArrowUp,
@@ -789,6 +789,19 @@ export function AgentTeamsPage() {
   const [tokenError, setTokenError] = useState<string | null>(null)
   const tokenResolverRef = useRef<((token: string | null) => void) | null>(null)
   const tokenPromiseRef = useRef<Promise<string | null> | null>(null)
+  const teamContextGenerationRef = useRef(0)
+  const currentTeamIdRef = useRef(selectedPresetId)
+
+  // Retire authorization at route commit, before a pending token can resume an old action.
+  useLayoutEffect(() => {
+    currentTeamIdRef.current = selectedPresetId
+    return () => {
+      teamContextGenerationRef.current += 1
+      tokenResolverRef.current?.(null)
+      tokenResolverRef.current = null
+      tokenPromiseRef.current = null
+    }
+  }, [selectedPresetId, contextParams])
 
   useEffect(() => () => {
     tokenResolverRef.current?.(null)
@@ -817,12 +830,24 @@ export function AgentTeamsPage() {
   }
 
   const withOperatorToken = async <Result,>(action: (token: string) => Promise<Result>): Promise<Result> => {
+    const generation = teamContextGenerationRef.current
+    const targetId = currentTeamIdRef.current
+    const assertCurrentContext = () => {
+      if (generation !== teamContextGenerationRef.current || targetId !== currentTeamIdRef.current) {
+        throw new Error('Team context changed. Review the current team again.')
+      }
+    }
     for (let attempt = 0; attempt < 2; attempt++) {
+      assertCurrentContext()
       const token = await requestOperatorToken(attempt ? 'The operator token was rejected. Enter a valid token to retry.' : null)
+      assertCurrentContext()
       if (!token) throw new Error('Operator token is required for this action.')
       try {
-        return await action(token)
+        const result = await action(token)
+        assertCurrentContext()
+        return result
       } catch (error) {
+        assertCurrentContext()
         if (!(error instanceof ApiHttpError) || error.status !== 401) throw error
         clearOperatorToken()
         if (attempt === 1) throw error
@@ -927,6 +952,10 @@ export function AgentTeamsPage() {
         setPlan(null)
         setLaunchResult(null)
         setPlanLoading(false)
+        setLaunching(false)
+        setTokenDialogOpen(false)
+        setTokenInput('')
+        setTokenError(null)
         void loadPresets()
         void loadProviderLaunchOptions()
       }
@@ -1238,6 +1267,9 @@ export function AgentTeamsPage() {
 
   const runLaunch = async () => {
     if (!selectedPreset || !plan || plan.preset_id !== selectedPreset.id) return
+    const generation = teamContextGenerationRef.current
+    const targetId = selectedPreset.id
+    const isCurrentTarget = () => generation === teamContextGenerationRef.current && targetId === currentTeamIdRef.current
     setLaunching(true)
     try {
       const request: AgentTeamLaunchRequest = {
@@ -1247,14 +1279,18 @@ export function AgentTeamsPage() {
         reuse_existing: reuseExistingSessions,
         confirm_plan_hash: plan.plan_hash,
       }
-      const result = await withOperatorToken((token) => launchAgentTeam(selectedPreset.id, request, token))
+      const result = await withOperatorToken((token) => {
+        if (!isCurrentTarget()) throw new Error('Team context changed. Review the current team again.')
+        return launchAgentTeam(targetId, request, token)
+      })
+      if (!isCurrentTarget()) return
       setLaunchResult(result)
       await loadPresets()
-      toast.success('Launch complete')
+      if (isCurrentTarget()) toast.success('Launch complete')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to launch team')
+      if (isCurrentTarget()) toast.error(error instanceof Error ? error.message : 'Failed to launch team')
     } finally {
-      setLaunching(false)
+      if (isCurrentTarget()) setLaunching(false)
     }
   }
 
