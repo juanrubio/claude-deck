@@ -444,7 +444,7 @@ export function DashboardPage() {
                   navigate(
                     providerStats.sessionMetricKind === "live"
                       ? "/agent-bridge"
-                      : "/sessions",
+                      : `/harnesses/${selectedProviderId}/sessions`,
                   )
                 }
               >

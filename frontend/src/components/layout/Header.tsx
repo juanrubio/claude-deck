@@ -65,7 +65,7 @@ export function Header() {
                   variant="outline"
                   title={provider.unavailable_reason ?? undefined}
                   className={cn(
-                    "gap-1 text-xs",
+                    "hidden md:inline-flex gap-1 text-xs",
                     provider.installed ? "font-mono" : "border-destructive/40 text-destructive"
                   )}
                 >
@@ -75,7 +75,7 @@ export function Header() {
                     <AlertCircle className="h-3 w-3" />
                   )}
                   {provider.display_name}
-                  {provider.version ? ` v${provider.version}` : provider.installed ? " ready" : " missing"}
+                  {provider.version ? ` v${provider.version}` : provider.installed ? " installed" : " missing"}
                 </Badge>
               ))}
               {status.environment?.agent_cli_warning && (

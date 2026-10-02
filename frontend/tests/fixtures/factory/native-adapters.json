@@ -5,7 +5,7 @@
     "claude-code": {
       "summary": {
         "component": "DashboardPage",
-        "access": "write_capable",
+        "access": "read_only",
         "reads": [
           "config",
           "mcp",
@@ -20,20 +20,7 @@
           "context",
           "plans"
         ],
-        "writes": [
-          "config",
-          "mcp",
-          "commands",
-          "agents",
-          "skills",
-          "hooks",
-          "plugins",
-          "permissions",
-          "output-styles",
-          "sessions",
-          "context",
-          "plans"
-        ]
+        "writes": []
       },
       "config": {
         "component": "ConfigViewerPage",
@@ -193,28 +180,29 @@
     "codex-cli": {
       "summary": {
         "component": "DashboardPage",
-        "access": "write_capable",
+        "access": "read_only",
         "reads": [
           "codex-config",
           "providers/codex-cli",
           "agent-bridge/sessions",
           "plans"
         ],
-        "writes": [
-          "codex-config",
-          "providers/codex-cli",
-          "agent-bridge/sessions",
-          "plans"
-        ]
+        "writes": []
       },
       "config": {
         "component": "ConfigViewerPage",
         "access": "write_capable",
         "reads": [
-          "codex-config"
+          "codex-config",
+          "providers/codex-cli/doctor",
+          "providers/codex-cli/features",
+          "providers/codex-cli/mcp",
+          "providers/codex-cli/plugins"
         ],
         "writes": [
-          "codex-config"
+          "codex-config",
+          "providers/codex-cli/mcp",
+          "providers/codex-cli/plugins"
         ]
       },
       "mcp": {

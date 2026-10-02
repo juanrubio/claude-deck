@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { ProjectProvider } from './contexts/ProjectContext'
 import { ProviderProvider } from './contexts/ProviderContext'
@@ -9,6 +9,8 @@ import { HarnessesPage } from './features/harnesses/HarnessesPage'
 import { OverviewPage, WorkPage, WorkDetailPage, RepositoriesPage, RepositoryPage } from './features/factory/FactoryPages'
 import { BridgeEntry, MailEntry } from './features/factory/ContextPages'
 import { AgentTeamsPage } from './features/agent-teams/AgentTeamsPage'
+
+function TeamsAlias() { const { search, hash } = useLocation(); return <Navigate replace to={`/teams${search}${hash}`} /> }
 
 function App() {
   return (
@@ -28,6 +30,7 @@ function App() {
                 <Route path="harnesses/:providerId" element={<HarnessesPage />} />
                 <Route path="harnesses/:providerId/:surface" element={<NativeRoute />} />
                 <Route path="harnesses/:providerId/plans/:filename" element={<NativeRoute surface="plans" detail="plan" />} />
+                <Route path="harnesses/:providerId/sessions/:projectFolder/:sessionId" element={<NativeRoute surface="sessions" detail="session" />} />
                 <Route path="teams" element={<AgentTeamsPage />} />
                 <Route path="teams/:teamId" element={<AgentTeamsPage />} />
                 <Route path="config" element={<NativeRoute surface="config" />} />
@@ -48,7 +51,7 @@ function App() {
                 <Route path="agent-bridge" element={<BridgeEntry />} />
                 <Route path="cc-bridge" element={<BridgeEntry />} />
                 <Route path="agent-mail" element={<MailEntry />} />
-                <Route path="agent-teams" element={<AgentTeamsPage />} />
+                <Route path="agent-teams" element={<TeamsAlias />} />
                 <Route path="plans/:filename" element={<NativeRoute surface="plans" detail="plan" />} />
                 <Route path="plans" element={<NativeRoute surface="plans" />} />
                 <Route path="context" element={<NativeRoute surface="context" />} />
