@@ -85,6 +85,7 @@ function respond(req) {
           : "first_page"
     ].response;
   }
+  if (key === "factory/work-items/6") return detail.operator_stop_retry_eligible.response;
   if (key.startsWith("factory/work-items/")) return detail.completed.response;
   if (key === "factory/repositories") return repos.normal.response;
   if (key.startsWith("factory/repositories/"))
@@ -286,7 +287,8 @@ try {
   await send("Runtime.enable");
   const observations = [],
     keyboard = [],
-    navigation = [];
+    navigation = [],
+    retryConfirmations = [];
   for (const width of [360, 768, 1280]) {
     await send("Emulation.setDeviceMetricsOverride", {
       width,
@@ -298,6 +300,7 @@ try {
       ["overview", "/", "132 matching work"],
       ["work", "/work", "Work"],
       ["detail", "/work/9", "delivery and human review are unconfirmed"],
+      ["retry-confirmation", "/work/6", "Fixture issue 6"],
       ["repository", "/repositories/1", "Same-label overlap"],
       ["harnesses", "/harnesses", "Harnesses"],
       ["native-codex", "/harnesses/codex-cli/config", "Codex Config"],
@@ -329,6 +332,17 @@ try {
         `${name} did not render`,
       );
       await sleep(100);
+      if (name === "retry-confirmation") {
+        // Synthetic cached credential; confirmation/cancellation must remain GET-only.
+        await evaluate(`sessionStorage.setItem("claude-deck.agent-teams.operator-token", "fixture-only");
+          [...document.querySelectorAll("button")].find(b=>b.textContent==="Retry issue").click()`);
+        for (let i = 0; i < 20; i++) {
+          if (await evaluate('Boolean(document.querySelector("[role=alertdialog]"))')) break;
+          await sleep(50);
+        }
+        assert(await evaluate('document.querySelector("[role=alertdialog]")?.textContent.includes("discard prior PR, handoff, and attempt markers")'), "Cached retry skipped confirmation");
+        assert(!(await evaluate('Boolean(document.querySelector("input[type=password]"))')), "Cached retry unexpectedly prompted for credentials");
+      }
       const layout = await evaluate(
         '({width:innerWidth,bodyWidth:document.documentElement.scrollWidth,mainWidth:document.querySelector("main").clientWidth,mainScrollWidth:document.querySelector("main").scrollWidth,heading:document.querySelector("main h2")?.textContent})',
       );
@@ -345,6 +359,14 @@ try {
         Buffer.from(shot.data, "base64"),
       );
       observations.push({ name, route, ...layout });
+      if (name === "retry-confirmation") {
+        await evaluate('[...document.querySelectorAll("[role=alertdialog] button")].find(b=>b.textContent==="Cancel").click()');
+        await sleep(100);
+        assert(!(await evaluate('Boolean(document.querySelector("[role=alertdialog]"))')), "Retry cancellation left confirmation open");
+        assert.equal(requests.filter((r) => r.method !== "GET").length, 0);
+        retryConfirmations.push({ width, cached_credential: true, cancelled: true, mutations: 0 });
+        await evaluate('sessionStorage.removeItem("claude-deck.agent-teams.operator-token")');
+      }
       if (name === "work") {
         await evaluate(
           '[...document.querySelectorAll("button")].find(b=>b.textContent==="Load more").click()',
@@ -492,6 +514,7 @@ try {
         observations,
         keyboard,
         navigation,
+        retryConfirmations,
         requests,
         unknown,
         errors,

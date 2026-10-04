@@ -21,6 +21,7 @@ import {
 } from "../src/features/factory/reads";
 import {
   clearOperatorToken,
+  getOperatorToken,
   setOperatorToken,
 } from "../src/features/agent-teams/operatorAuth";
 import {
@@ -314,6 +315,7 @@ describe("cursor browsing V26/V27", () => {
     ).length;
     setOperatorToken("synthetic-test-operator");
     fireEvent.click(screen.getByRole("button", { name: "Retry issue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm retry" }));
     await settle();
     await act(async () => vi.advanceTimersByTimeAsync(15000));
     await visibility("hidden");
@@ -461,6 +463,7 @@ describe("work details and protected controls", () => {
       screen.queryByRole("button", { name: /Approve/ }),
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry issue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm retry" }));
     await settle();
     const dialog = screen.getByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Operator token"), {
@@ -480,4 +483,143 @@ describe("work details and protected controls", () => {
       2,
     );
   });
+  it.each([false, true])("cancel leaves retry untouched with cached credential=%s", async (cached) => {
+    const eligible = detail.operator_stop_retry_eligible.response;
+    const { requests } = fixtureFetch(() => jsonResponse(eligible));
+    if (cached) setOperatorToken("synthetic-operator");
+    renderRoute(<WorkDetailPage />, "/work/6", "/work/:workItemId");
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Retry issue" }));
+    const warning = screen.getByRole("alertdialog");
+    expect(within(warning).getByText(/discard prior PR, handoff, and attempt markers/)).toBeInTheDocument();
+    expect(within(warning).getByText(/until the current owner releases it/)).toBeInTheDocument();
+    expect(requests.filter((r) => r.method === "POST")).toHaveLength(0);
+    expect(screen.queryByLabelText("Operator token")).not.toBeInTheDocument();
+    fireEvent.click(within(warning).getByRole("button", { name: "Cancel" }));
+    await settle();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Operator token")).not.toBeInTheDocument();
+    expect(requests).toHaveLength(1);
+  });
+
+  it.each(["deferred", "pending", "retained"])("confirms cached retry once and reports %s without claiming dispatch", async (status) => {
+    const eligible = detail.operator_stop_retry_eligible.response;
+    // Explicit P02 derivation of the legacy retry response, not a new P01 fixture.
+    const response = { ...eligible.work_item.item,
+      dispatch_status: status === "pending" ? "pending" : "escalated",
+      retry_requested_at: status === "deferred" ? "2026-09-30T12:01:00Z" : null,
+      status_note: status === "deferred" ? "Waiting for current owner release." : null,
+    };
+    const credentials: (string | null)[] = [];
+    const { requests } = fixtureFetch((path, _query, options) => {
+      if (!path.endsWith("/retry")) return jsonResponse(eligible);
+      credentials.push(new Headers(options?.headers).get("X-Deck-Operator-Token"));
+      return jsonResponse(response);
+    });
+    setOperatorToken("synthetic-operator");
+    renderRoute(<WorkDetailPage />, "/work/6", "/work/:workItemId");
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Retry issue" }));
+    expect(requests.filter((r) => r.method === "POST")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm retry" }));
+    await settle();
+    expect(requests.filter((r) => r.method === "POST")).toHaveLength(1);
+    expect(credentials).toEqual(["synthetic-operator"]);
+    expect(requests.filter((r) => r.path.startsWith("factory/"))).toHaveLength(2);
+    const message = screen.getByRole("status");
+    expect(message).toHaveTextContent(status === "deferred" ? "re-dispatch is deferred" : "A new dispatch has not been observed");
+    if (status === "pending") expect(message).toHaveTextContent("reset this work item to pending");
+    if (status === "retained") expect(message).toHaveTextContent("Retry response status: escalated");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Operator token")).not.toBeInTheDocument();
+  });
+
+  it("requires a fresh confirmation after 401 before using a replacement credential", async () => {
+    const eligible = detail.operator_stop_retry_eligible.response;
+    let posts = 0;
+    const credentials: (string | null)[] = [];
+    const { requests } = fixtureFetch((path, _query, options) => {
+      if (!path.endsWith("/retry")) return jsonResponse(eligible);
+      credentials.push(new Headers(options?.headers).get("X-Deck-Operator-Token"));
+      return ++posts === 1 ? jsonResponse({ detail: "Expired authorization" }, 401)
+        : jsonResponse({ ...eligible.work_item.item, dispatch_status: "pending" });
+    });
+    setOperatorToken("synthetic-expired");
+    renderRoute(<WorkDetailPage />, "/work/6", "/work/:workItemId");
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Retry issue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm retry" }));
+    await settle();
+    const auth = screen.getByRole("dialog");
+    fireEvent.change(within(auth).getByLabelText("Operator token"), { target: { value: "synthetic-replacement" } });
+    fireEvent.click(within(auth).getByRole("button", { name: "Authorize retry" }));
+    await settle();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(posts).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await settle();
+    expect(posts).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "Retry issue" }));
+    expect(posts).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm retry" }));
+    await settle();
+    expect(requests.filter((r) => r.method === "POST")).toHaveLength(2);
+    expect(credentials).toEqual(["synthetic-expired", "synthetic-replacement"]);
+  });
+
+  it("drops pending retry authorization when navigating to another work item", async () => {
+    const eligible = detail.operator_stop_retry_eligible.response;
+    const { requests } = fixtureFetch((path) => jsonResponse(path.endsWith("/9") ? detail.completed.response : eligible));
+    let navigateAway!: () => void;
+    function Navigate() {
+      const navigate = useNavigate();
+      navigateAway = () => navigate("/work/9");
+      return null;
+    }
+    render(<MemoryRouter initialEntries={["/work/6"]}><Navigate /><Routes>
+      <Route path="/work/:workItemId" element={<WorkDetailPage />} />
+    </Routes></MemoryRouter>);
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Retry issue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm retry" }));
+    await settle();
+    expect(screen.getByLabelText("Operator token")).toBeInTheDocument();
+    // Browser history navigation remains possible while modal focus is trapped.
+    await act(async () => navigateAway());
+    await settle();
+    expect(screen.queryByLabelText("Operator token")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(requests.filter((r) => r.method === "POST")).toHaveLength(0);
+  });
+
+  it("ignores an old retry 401 after navigating and preserves the new context credential", async () => {
+    const eligible = detail.operator_stop_retry_eligible.response;
+    let finish!: (value: Response) => void;
+    const { requests } = fixtureFetch((path) => path.endsWith("/retry")
+      ? new Promise<Response>((resolve) => { finish = resolve; })
+      : jsonResponse(path.endsWith("/9") ? detail.completed.response : eligible));
+    function Navigate() {
+      const navigate = useNavigate();
+      return <button onClick={() => navigate("/work/9")}>Other work</button>;
+    }
+    setOperatorToken("synthetic-old");
+    render(<MemoryRouter initialEntries={["/work/6"]}><Navigate /><Routes>
+      <Route path="/work/:workItemId" element={<WorkDetailPage />} />
+    </Routes></MemoryRouter>);
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Retry issue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm retry" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Other work" }));
+    await settle();
+    setOperatorToken("synthetic-new-context");
+    await act(async () => finish(jsonResponse({ detail: "Old denial" }, 401)));
+    await settle();
+    expect(getOperatorToken()).toBe("synthetic-new-context");
+    expect(screen.queryByLabelText("Operator token")).not.toBeInTheDocument();
+    expect(screen.queryByText("Old denial")).not.toBeInTheDocument();
+    expect(requests.filter((r) => r.path === "factory/work-items/6")).toHaveLength(1);
+    expect(requests.filter((r) => r.method === "POST")).toHaveLength(1);
+  });
+
 });
