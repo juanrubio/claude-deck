@@ -136,6 +136,12 @@ try {
     assert(focused.target && focused.visible, 'Keyboard focus lost: '+selector); keyboard.push({selector,...focused});
   };
   const capture = async (name, width, theme) => {
+    // Bring the evidence subject into view; Teams summary cards precede this tab.
+    await evaluate(`(() => {if(document.querySelector('[role=dialog],[role=alertdialog]'))return;
+      const subject=${JSON.stringify(name)}==='first-run'
+        ? document.querySelector('[role=tabpanel][data-state=active]')
+        : [...document.querySelectorAll('h3')].find(el=>el.textContent==='Activity');
+      subject?.scrollIntoView({block:'start',inline:'nearest'});})()`);
     await sleep(100);
     const layout = await evaluate(`(() => {
       const rect = el => {if(!el)return null;const r=el.getBoundingClientRect();return {width:el.clientWidth,scrollWidth:el.scrollWidth,left:r.left,right:r.right};};
